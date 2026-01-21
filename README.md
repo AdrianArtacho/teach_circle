@@ -1,5 +1,7 @@
 # teach_circle
-Interactive circle of fifths (adapted from Mike Foskett)
+Interactive circle of fifths (adapted from [Mike Foskett](https://websemantics.uk/tools/circle-of-fifths-chord-wheel/)'s)
+
+![img/gui.png](img/gui.png)
 
 ---
 
