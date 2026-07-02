@@ -295,3 +295,271 @@ function launchFullWindow(config) {
 
 // Any object with data-fullScreen attribute by default
 launchFullWindow();
+
+
+
+// Web MIDI chord tracking + circle highlighting.
+// Works on HTTPS pages (GitHub Pages) in browsers that support Web MIDI
+// such as Chrome and Edge. Keeps the original click/drag behavior intact.
+(function (window, document) {
+
+  "use strict";
+  if (!supportsES6) return false;
+
+  const NOTE_NAMES = ['C', 'C# / Db', 'D', 'Eb', 'E', 'F', 'F# / Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+  const CIRCLE_MAJOR_PCS = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
+  const CIRCLE_MINOR_PCS = [9, 4, 11, 6, 1, 8, 3, 10, 5, 0, 7, 2];
+
+  const CHORD_TEMPLATES = [
+    { suffix: 'maj7', label: 'major seventh', intervals: [0, 4, 7, 11] },
+    { suffix: '7', label: 'dominant seventh', intervals: [0, 4, 7, 10] },
+    { suffix: 'm7', label: 'minor seventh', intervals: [0, 3, 7, 10] },
+    { suffix: 'ø7', label: 'half-diminished seventh', intervals: [0, 3, 6, 10] },
+    { suffix: 'dim7', label: 'diminished seventh', intervals: [0, 3, 6, 9] },
+    { suffix: '', label: 'major triad', intervals: [0, 4, 7] },
+    { suffix: 'm', label: 'minor triad', intervals: [0, 3, 7] },
+    { suffix: 'dim', label: 'diminished triad', intervals: [0, 3, 6] },
+    { suffix: 'aug', label: 'augmented triad', intervals: [0, 4, 8] },
+    { suffix: 'sus4', label: 'suspended fourth', intervals: [0, 5, 7] },
+    { suffix: 'sus2', label: 'suspended second', intervals: [0, 2, 7] }
+  ];
+
+  const activeNotes = new Set();
+  let midiAccess = null;
+  let selectedInputId = '';
+
+  const circle = document.querySelector('[data-fullScreen]') || document.body;
+  const rotationLayer = document.querySelector('.rotationLayer');
+  const majorPaths = Array.from(document.querySelectorAll('.clickLayer_major [data-rotate]'));
+  const minorPaths = Array.from(document.querySelectorAll('.clickLayer_minor [data-rotate]'));
+  const majorVisualPaths = Array.from(document.querySelectorAll('.rotationLayer_major path'));
+  const minorVisualPaths = Array.from(document.querySelectorAll('.rotationLayer_minor path'));
+  const allClickablePaths = Array.from(document.querySelectorAll('.clickLayer [data-rotate]'));
+  const allHighlightPaths = allClickablePaths.concat(majorVisualPaths, minorVisualPaths);
+
+  const normalisePc = value => ((value % 12) + 12) % 12;
+  const pcName = pc => NOTE_NAMES[normalisePc(pc)];
+  const pcsFromActiveNotes = _ => Array.from(new Set(Array.from(activeNotes).map(note => normalisePc(note)))).sort((a, b) => a - b);
+
+  const annotateCirclePaths = _ => {
+    const annotate = (paths, pcs, mode, suffix) => {
+      paths.forEach((path, index) => {
+        const pc = pcs[index];
+        path.dataset.pc = pc;
+        path.dataset.mode = mode;
+        path.dataset.chord = pcName(pc) + suffix;
+      });
+    };
+    annotate(majorPaths, CIRCLE_MAJOR_PCS, 'major', '');
+    annotate(majorVisualPaths, CIRCLE_MAJOR_PCS, 'major', '');
+    annotate(minorPaths, CIRCLE_MINOR_PCS, 'minor', 'm');
+    annotate(minorVisualPaths, CIRCLE_MINOR_PCS, 'minor', 'm');
+  };
+
+  const createMidiPanel = _ => {
+    const panel = document.createElement('section');
+    panel.className = 'midiPanel';
+    panel.innerHTML = `
+      <div class="midiPanel_row">
+        <strong>Live MIDI</strong>
+        <button class="midiPanel_btn" type="button" data-midi-enable>Enable</button>
+      </div>
+      <label class="midiPanel_label">
+        Input
+        <select class="midiPanel_select" data-midi-input disabled>
+          <option value="">No MIDI input selected</option>
+        </select>
+      </label>
+      <div class="midiPanel_status" data-midi-status>Use Chrome/Edge and connect a MIDI keyboard.</div>
+      <div class="midiPanel_result" data-midi-result>Play a chord…</div>
+      <div class="midiPanel_pcs" data-midi-pcs></div>
+    `;
+    circle.prepend(panel);
+    return panel;
+  };
+
+  const panel = createMidiPanel();
+  const enableBtn = panel.querySelector('[data-midi-enable]');
+  const inputSelect = panel.querySelector('[data-midi-input]');
+  const statusEl = panel.querySelector('[data-midi-status]');
+  const resultEl = panel.querySelector('[data-midi-result]');
+  const pcsEl = panel.querySelector('[data-midi-pcs]');
+
+  const setStatus = message => {
+    statusEl.textContent = message;
+  };
+
+  const setRotationForRoot = rootPc => {
+    if (!rotationLayer) return;
+    const index = CIRCLE_MAJOR_PCS.indexOf(normalisePc(rootPc));
+    if (index < 0) return;
+    const rotation = index <= 6 ? index * -30 : (12 - index) * 30;
+    const rotationLayers = document.querySelectorAll('.rotationLayer');
+    for (const layer of rotationLayers) {
+      window.requestAnimationFrame(_ => {
+        layer.style.setProperty('--transitionDuration', '0.3s');
+        layer.style.setProperty('--rotation', rotation + 'deg');
+      });
+    }
+  };
+
+  const clearHighlights = _ => {
+    allHighlightPaths.forEach(path => path.classList.remove('is-active', 'is-root', 'is-chord-tone'));
+  };
+
+  const highlightPcs = (pcs, rootPc, mode) => {
+    clearHighlights();
+    const pcSet = new Set(pcs.map(normalisePc));
+    allHighlightPaths.forEach(path => {
+      const pc = Number(path.dataset.pc);
+      if (!pcSet.has(pc)) return;
+      path.classList.add('is-active', 'is-chord-tone');
+      if (pc === normalisePc(rootPc)) path.classList.add('is-root');
+      if (mode === 'minor' && path.dataset.mode === 'minor' && pc === normalisePc(rootPc)) path.classList.add('is-root');
+    });
+  };
+
+  const detectChord = pcs => {
+    if (pcs.length < 2) return null;
+    const pcSet = new Set(pcs.map(normalisePc));
+    const candidates = [];
+
+    for (const root of pcSet) {
+      for (const template of CHORD_TEMPLATES) {
+        const chordPcs = template.intervals.map(interval => normalisePc(root + interval));
+        const matches = chordPcs.every(pc => pcSet.has(pc));
+        if (!matches) continue;
+        const extraNotes = pcs.length - chordPcs.length;
+        candidates.push({
+          root,
+          suffix: template.suffix,
+          label: template.label,
+          pcs: chordPcs,
+          mode: template.suffix === 'm' || template.suffix === 'm7' ? 'minor' : 'major',
+          score: chordPcs.length * 10 - Math.max(0, extraNotes)
+        });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score || b.pcs.length - a.pcs.length);
+    return candidates[0] || null;
+  };
+
+  const updateDisplay = _ => {
+    const pcs = pcsFromActiveNotes();
+    pcsEl.textContent = pcs.length ? 'Pitch classes: ' + pcs.map(pcName).join(', ') : '';
+
+    if (!pcs.length) {
+      resultEl.textContent = 'Play a chord…';
+      clearHighlights();
+      return;
+    }
+
+    const chord = detectChord(pcs);
+    if (!chord) {
+      resultEl.textContent = pcs.length === 1 ? pcName(pcs[0]) : 'No simple chord detected';
+      highlightPcs(pcs, pcs[0], 'major');
+      return;
+    }
+
+    resultEl.textContent = pcName(chord.root) + chord.suffix + ' — ' + chord.label;
+    highlightPcs(chord.pcs, chord.root, chord.mode);
+    setRotationForRoot(chord.root);
+  };
+
+  const handleMidiMessage = event => {
+    const [status, note, velocity] = event.data;
+    const command = status & 0xf0;
+
+    if (command === 0x90 && velocity > 0) {
+      activeNotes.add(note);
+    } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
+      activeNotes.delete(note);
+    } else {
+      return;
+    }
+
+    updateDisplay();
+  };
+
+  const disconnectInputs = _ => {
+    if (!midiAccess) return;
+    for (const input of midiAccess.inputs.values()) {
+      input.onmidimessage = null;
+    }
+  };
+
+  const connectSelectedInput = _ => {
+    disconnectInputs();
+    activeNotes.clear();
+    updateDisplay();
+
+    if (!midiAccess || !selectedInputId) return;
+    const input = midiAccess.inputs.get(selectedInputId);
+    if (!input) return;
+    input.onmidimessage = handleMidiMessage;
+    setStatus('Listening to ' + input.name + '.');
+  };
+
+  const populateInputs = _ => {
+    if (!midiAccess) return;
+    const inputs = Array.from(midiAccess.inputs.values());
+    inputSelect.innerHTML = '';
+
+    if (!inputs.length) {
+      inputSelect.disabled = true;
+      inputSelect.innerHTML = '<option value="">No MIDI inputs found</option>';
+      setStatus('No MIDI inputs found. Connect a device, then try again.');
+      return;
+    }
+
+    inputSelect.disabled = false;
+    inputs.forEach((input, index) => {
+      const option = document.createElement('option');
+      option.value = input.id;
+      option.textContent = input.name || ('MIDI input ' + (index + 1));
+      inputSelect.appendChild(option);
+    });
+
+    selectedInputId = selectedInputId && midiAccess.inputs.has(selectedInputId)
+      ? selectedInputId
+      : inputs[0].id;
+    inputSelect.value = selectedInputId;
+    connectSelectedInput();
+  };
+
+  const enableMidi = async _ => {
+    if (!navigator.requestMIDIAccess) {
+      setStatus('Web MIDI is not available in this browser. Try Chrome or Edge.');
+      return;
+    }
+
+    try {
+      setStatus('Requesting MIDI permission…');
+      midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccess.onstatechange = populateInputs;
+      populateInputs();
+      enableBtn.textContent = 'MIDI enabled';
+      enableBtn.disabled = true;
+    } catch (err) {
+      setStatus('MIDI permission was denied or unavailable.');
+    }
+  };
+
+  annotateCirclePaths();
+
+  enableBtn.addEventListener('click', enableMidi);
+  inputSelect.addEventListener('change', event => {
+    selectedInputId = event.target.value;
+    connectSelectedInput();
+  });
+
+  // Small debugging hook: from the browser console, run e.g.
+  // window.circleMidiTest([60, 64, 67]) to simulate C major.
+  window.circleMidiTest = notes => {
+    activeNotes.clear();
+    notes.forEach(note => activeNotes.add(Number(note)));
+    updateDisplay();
+  };
+
+}(window, document));

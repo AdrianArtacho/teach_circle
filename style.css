@@ -246,3 +246,82 @@ body {
 .noPointerEvents .requiresPointerEvents {
   display: none;
 }
+
+
+/* Live MIDI panel and chord highlighting */
+.midiPanel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 3;
+  width: min(20rem, calc(100vw - 2rem));
+  padding: .75rem;
+  border-radius: .5rem;
+  background: var(--btnBg);
+  border: .125rem solid var(--btnColor);
+  box-shadow: 0 .125rem .25rem var(--btnShadow);
+  color: #000;
+  backdrop-filter: blur(6px);
+}
+.midiPanel_row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .5rem;
+}
+.midiPanel_btn,
+.midiPanel_select {
+  font: inherit;
+}
+.midiPanel_btn {
+  padding: .3rem .55rem;
+  border: .1rem solid var(--btnColor);
+  border-radius: .3rem;
+  background: var(--btnBg);
+  color: var(--btnColor);
+  cursor: pointer;
+}
+.midiPanel_btn:disabled {
+  cursor: default;
+  opacity: .7;
+}
+.midiPanel_label {
+  display: grid;
+  gap: .25rem;
+  margin-bottom: .5rem;
+  font-size: .9rem;
+}
+.midiPanel_select {
+  width: 100%;
+}
+.midiPanel_status,
+.midiPanel_pcs {
+  font-size: .8rem;
+  line-height: 1.3;
+}
+.midiPanel_result {
+  margin: .5rem 0 .25rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.clickLayer [data-rotate].is-chord-tone,
+.rotationLayer path.is-chord-tone {
+  fill: rgba(255,255,255,.65);
+  stroke: #000;
+  stroke-width: 3;
+}
+.clickLayer [data-rotate].is-root,
+.rotationLayer path.is-root {
+  fill: rgba(255,255,255,.95);
+  stroke: #000;
+  stroke-width: 6;
+}
+@media (max-width: 720px) {
+  .midiPanel {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin: .75rem auto;
+  }
+}
