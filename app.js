@@ -448,7 +448,7 @@ launchFullWindow();
     });
   };
 
-  const chordLayerForChord = chord => chord.mode === 'minor' ? 'minor' : 'major';
+  const chordLayerForChord = chord => (chord.mode === 'minor' || chord.mode === 'diminished') ? 'minor' : 'major';
 
   const focusIndexForChord = chord => {
     // Major chords focus their own major area. Minor chords focus the wedge
@@ -457,10 +457,59 @@ launchFullWindow();
     if (chord.mode === 'minor') {
       return CIRCLE_MINOR_PCS.indexOf(normalisePc(chord.root));
     }
+    if (chord.mode === 'diminished') {
+      // A leading-tone diminished triad belongs visually to the major key
+      // a semitone above it: B° -> C major area, F#° -> G major area.
+      return CIRCLE_MAJOR_PCS.indexOf(normalisePc(chord.root + 1));
+    }
     return CIRCLE_MAJOR_PCS.indexOf(normalisePc(chord.root));
   };
 
   const focusPcForChord = chord => CIRCLE_MAJOR_PCS[focusIndexForChord(chord)];
+
+
+
+  const currentFocusIndex = _ => {
+    // The major-key area currently at the top of the wheel. This lets MIDI
+    // playing behave like harmonic motion inside the visible key universe
+    // rather than always recentering every chord as an isolated object.
+    const current = getCurrentRotation();
+    return normalisePc(Math.round(-current / 30));
+  };
+
+  const chordDegreeInMajorKey = (chord, keyPc) => {
+    const degree = normalisePc(chord.root - keyPc);
+    const suffix = chord.suffix;
+
+    if ((degree === 0 || degree === 5) && (suffix === '' || suffix === 'maj7')) return degree;
+    if (degree === 7 && (suffix === '' || suffix === '7')) return degree;
+    if ((degree === 2 || degree === 4 || degree === 9) && (suffix === 'm' || suffix === 'm7')) return degree;
+    if (degree === 11 && (suffix === 'dim' || suffix === 'ø7' || suffix === 'dim7')) return degree;
+
+    return null;
+  };
+
+  const chordBelongsToCurrentMajorUniverse = chord => {
+    const index = currentFocusIndex();
+    const keyPc = CIRCLE_MAJOR_PCS[index];
+    return chordDegreeInMajorKey(chord, keyPc) !== null;
+  };
+
+  const highlightLocalDiatonicChord = chord => {
+    // In a local key universe, most chords already have their own neighbouring
+    // major/minor path. The leading-tone diminished chord is represented as the
+    // outer/top part of the current key area, so we highlight that area without
+    // forcing a rotation.
+    if (chord.mode !== 'diminished') {
+      highlightChord(chord);
+      return;
+    }
+
+    clearHighlights();
+    const index = currentFocusIndex();
+    const paths = [minorPaths[index], minorVisualPaths[index]].filter(Boolean);
+    paths.forEach(path => path.classList.add('is-active', 'is-root'));
+  };
 
   const highlightChord = chord => {
     clearHighlights();
@@ -492,7 +541,7 @@ launchFullWindow();
           suffix: template.suffix,
           label: template.label,
           pcs: chordPcs,
-          mode: template.suffix === 'm' || template.suffix === 'm7' ? 'minor' : 'major',
+          mode: (template.suffix === 'm' || template.suffix === 'm7') ? 'minor' : ((template.suffix === 'dim' || template.suffix === 'ø7' || template.suffix === 'dim7') ? 'diminished' : 'major'),
           score: chordPcs.length * 10 - Math.max(0, extraNotes)
         });
       }
@@ -521,10 +570,18 @@ launchFullWindow();
 
     const focusIndex = focusIndexForChord(chord);
     const focusPc = focusPcForChord(chord);
-    const focusLabel = chord.mode === 'minor' ? ' · focus: ' + pcName(focusPc) + ' major area' : '';
+    const isLocal = chordBelongsToCurrentMajorUniverse(chord);
+    const focusLabel = isLocal
+      ? ' · inside current key area'
+      : ((chord.mode === 'minor' || chord.mode === 'diminished') ? ' · focus: ' + pcName(focusPc) + ' major area' : '');
     resultEl.textContent = pcName(chord.root) + chord.suffix + ' — ' + chord.label + focusLabel;
-    highlightChord(chord);
-    setRotationForCircleIndex(focusIndex);
+
+    if (isLocal) {
+      highlightLocalDiatonicChord(chord);
+    } else {
+      highlightChord(chord);
+      setRotationForCircleIndex(focusIndex);
+    }
   };
 
   const handleMidiMessage = event => {
