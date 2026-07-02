@@ -44,3 +44,8 @@ circleMidiTest([62, 65, 69, 72]) // D minor seventh
 ```
 
 Web MIDI usually requires HTTPS, so GitHub Pages is suitable. Some browsers, especially Safari/iOS, may not support it.
+
+
+## Background image
+
+The wheel uses `img/keys.jpg` as its SVG background image. Keep that file in the `img/` folder when deploying to GitHub Pages.
