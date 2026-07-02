@@ -1,4 +1,5 @@
 # teach_circle
+
 Interactive circle of fifths (adapted from [Mike Foskett](https://websemantics.uk/tools/circle-of-fifths-chord-wheel/)'s)
 
 ![img/gui.png](img/gui.png)
@@ -16,3 +17,7 @@ and open http://localhost:8000
 ## Use it online 
 
 https://AdrianArtacho.github.io/teach_circle/
+
+---
+
+## [ToDo](https://trello.com/c/e0NGh9hL/264-circleoffifths)
