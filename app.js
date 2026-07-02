@@ -389,11 +389,27 @@ launchFullWindow();
     statusEl.textContent = message;
   };
 
-  const setRotationForRoot = rootPc => {
-    if (!rotationLayer) return;
-    const index = CIRCLE_MAJOR_PCS.indexOf(normalisePc(rootPc));
-    if (index < 0) return;
-    const rotation = index <= 6 ? index * -30 : (12 - index) * 30;
+  const getCurrentRotation = _ => {
+    if (!rotationLayer) return 0;
+    const currentRotation = getComputedStyle(rotationLayer)
+      .getPropertyValue('--rotation')
+      .replace('deg', '');
+    return parseInt(currentRotation || 0);
+  };
+
+  const shortestRotationToIndex = index => {
+    // Use the nearest equivalent angle instead of jumping to a fixed absolute
+    // position. This keeps harmonic motion visually local: C -> Em only moves
+    // one fifth-step, because Em lives in the neighbouring G-major area.
+    const current = getCurrentRotation();
+    const target = index * -30;
+    const diff = ((target - current + 540) % 360) - 180;
+    return current + diff;
+  };
+
+  const setRotationForCircleIndex = index => {
+    if (!rotationLayer || index < 0) return;
+    const rotation = shortestRotationToIndex(index);
     const rotationLayers = document.querySelectorAll('.rotationLayer');
     for (const layer of rotationLayers) {
       window.requestAnimationFrame(_ => {
@@ -403,11 +419,19 @@ launchFullWindow();
     }
   };
 
+  const setRotationForRoot = rootPc => {
+    const index = CIRCLE_MAJOR_PCS.indexOf(normalisePc(rootPc));
+    setRotationForCircleIndex(index);
+  };
+
   const clearHighlights = _ => {
     allHighlightPaths.forEach(path => path.classList.remove('is-active', 'is-root', 'is-chord-tone'));
   };
 
   const highlightPcs = (pcs, rootPc, mode) => {
+    // Pitch-class highlighting is only used before a chord has been detected:
+    // a single G may reasonably light several G-related places. Once there is
+    // a chord, use highlightChord() instead.
     clearHighlights();
     const root = normalisePc(rootPc);
     const pcSet = new Set(pcs.map(normalisePc));
@@ -416,9 +440,6 @@ launchFullWindow();
       if (!pcSet.has(pc)) return;
       path.classList.add('is-active', 'is-chord-tone');
 
-      // Root highlighting follows the musical layer: major roots on the
-      // major ring, minor roots on the relative-minor ring. This avoids
-      // making D major look like the focus when the played chord is D minor.
       const isRootInCorrectLayer = pc === root && (
         (mode === 'minor' && path.dataset.mode === 'minor') ||
         (mode !== 'minor' && path.dataset.mode === 'major')
@@ -427,10 +448,32 @@ launchFullWindow();
     });
   };
 
-  const focusPcForChord = chord => {
-    // Minor chords live inside their relative major area on this wheel:
-    // A minor -> C major, D minor -> F major, etc.
-    return chord.mode === 'minor' ? normalisePc(chord.root + 3) : chord.root;
+  const chordLayerForChord = chord => chord.mode === 'minor' ? 'minor' : 'major';
+
+  const focusIndexForChord = chord => {
+    // Major chords focus their own major area. Minor chords focus the wedge
+    // where their relative major and their minor form coexist on this wheel:
+    // A minor -> C major area, D minor -> F major area, E minor -> G major area.
+    if (chord.mode === 'minor') {
+      return CIRCLE_MINOR_PCS.indexOf(normalisePc(chord.root));
+    }
+    return CIRCLE_MAJOR_PCS.indexOf(normalisePc(chord.root));
+  };
+
+  const focusPcForChord = chord => CIRCLE_MAJOR_PCS[focusIndexForChord(chord)];
+
+  const highlightChord = chord => {
+    clearHighlights();
+    const layer = chordLayerForChord(chord);
+    const root = normalisePc(chord.root);
+
+    // Highlight one harmonic object, not every pitch class contained in it.
+    // This prevents C major from lighting unrelated E/G regions elsewhere.
+    allHighlightPaths.forEach(path => {
+      const pc = Number(path.dataset.pc);
+      if (pc !== root || path.dataset.mode !== layer) return;
+      path.classList.add('is-active', 'is-root');
+    });
   };
 
   const detectChord = pcs => {
@@ -476,11 +519,12 @@ launchFullWindow();
       return;
     }
 
+    const focusIndex = focusIndexForChord(chord);
     const focusPc = focusPcForChord(chord);
     const focusLabel = chord.mode === 'minor' ? ' · focus: ' + pcName(focusPc) + ' major area' : '';
     resultEl.textContent = pcName(chord.root) + chord.suffix + ' — ' + chord.label + focusLabel;
-    highlightPcs(chord.pcs, chord.root, chord.mode);
-    setRotationForRoot(focusPc);
+    highlightChord(chord);
+    setRotationForCircleIndex(focusIndex);
   };
 
   const handleMidiMessage = event => {
