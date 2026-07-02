@@ -409,14 +409,28 @@ launchFullWindow();
 
   const highlightPcs = (pcs, rootPc, mode) => {
     clearHighlights();
+    const root = normalisePc(rootPc);
     const pcSet = new Set(pcs.map(normalisePc));
     allHighlightPaths.forEach(path => {
       const pc = Number(path.dataset.pc);
       if (!pcSet.has(pc)) return;
       path.classList.add('is-active', 'is-chord-tone');
-      if (pc === normalisePc(rootPc)) path.classList.add('is-root');
-      if (mode === 'minor' && path.dataset.mode === 'minor' && pc === normalisePc(rootPc)) path.classList.add('is-root');
+
+      // Root highlighting follows the musical layer: major roots on the
+      // major ring, minor roots on the relative-minor ring. This avoids
+      // making D major look like the focus when the played chord is D minor.
+      const isRootInCorrectLayer = pc === root && (
+        (mode === 'minor' && path.dataset.mode === 'minor') ||
+        (mode !== 'minor' && path.dataset.mode === 'major')
+      );
+      if (isRootInCorrectLayer) path.classList.add('is-root');
     });
+  };
+
+  const focusPcForChord = chord => {
+    // Minor chords live inside their relative major area on this wheel:
+    // A minor -> C major, D minor -> F major, etc.
+    return chord.mode === 'minor' ? normalisePc(chord.root + 3) : chord.root;
   };
 
   const detectChord = pcs => {
@@ -462,9 +476,11 @@ launchFullWindow();
       return;
     }
 
-    resultEl.textContent = pcName(chord.root) + chord.suffix + ' — ' + chord.label;
+    const focusPc = focusPcForChord(chord);
+    const focusLabel = chord.mode === 'minor' ? ' · focus: ' + pcName(focusPc) + ' major area' : '';
+    resultEl.textContent = pcName(chord.root) + chord.suffix + ' — ' + chord.label + focusLabel;
     highlightPcs(chord.pcs, chord.root, chord.mode);
-    setRotationForRoot(chord.root);
+    setRotationForRoot(focusPc);
   };
 
   const handleMidiMessage = event => {
